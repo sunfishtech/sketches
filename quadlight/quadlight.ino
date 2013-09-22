@@ -36,8 +36,8 @@ Stripper stripper = Stripper(&strip);
 
 // Mustnt conflict / collide with our message payload data. Fine if we use base64 library ^^ above
 char field_separator = '|';
-//char command_separator = '\n';
-char command_separator =';';
+char command_separator = '\n';
+//char command_separator =';';
 
 
 // Attach a new CmdMessenger object to the default Serial port
