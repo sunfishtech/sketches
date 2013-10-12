@@ -1,3 +1,5 @@
+
+
 // This example demonstrates CmdMessenger's callback  & attach methods
 // For Arduino Uno and Arduino Duemilanove board (may work with other)
 
@@ -5,8 +7,11 @@
 
 // CmdMessenger library available from https://github.com/dreamcat4/cmdmessenger
 #include <Stripper.h>
-
 #include <CmdMessenger.h>
+#include <Bridge.h>
+#include <Process.h>
+#include <YunMqtt.h>
+#include "quadlight.h"
 
 // Base64 library available from https://github.com/adamvr/arduino-base64
 //#include <Base64.h>
@@ -18,7 +23,7 @@
 
 #define LEDPIN 6
 #define SW1PIN 2
-#define NUMLEDS 40
+
 #define LSENSOR 0
 
 
@@ -31,17 +36,18 @@
 //   NEO_KHZ800  800 KHz bitstream (e.g. High Density LED strip)
 
 Adafruit_NeoPixel strip = Adafruit_NeoPixel(NUMLEDS, LEDPIN, NEO_GRB + NEO_KHZ800);
-Stripper stripper = Stripper(&strip);
+Stripper stripper = Stripper(&strip, 5, 8);
 
-
+YunMqtt MQTT;
 // Mustnt conflict / collide with our message payload data. Fine if we use base64 library ^^ above
 char field_separator = '|';
 char command_separator = '\n';
 //char command_separator =';';
 
 
+
 // Attach a new CmdMessenger object to the default Serial port
-CmdMessenger cmdMessenger = CmdMessenger(Serial, field_separator, command_separator);
+CmdMessenger cmdMessenger = CmdMessenger(MQTT, field_separator, command_separator);
 
 
 
@@ -152,23 +158,25 @@ void rain(){
 
 void setColor()
 {
-  unsigned int ledNo = 0; //0 = all
+  uint16_t x = 0;
+  uint16_t y = 0;
   byte rgb[3] = {0};
-  unsigned long wait = 0;
+  uint16_t wait = 0;
  
   readColor(rgb);
-  if (cmdMessenger.available()) ledNo = cmdMessenger.readInt();
+  if (cmdMessenger.available()) x = cmdMessenger.readInt();
+  if (cmdMessenger.available()) y = cmdMessenger.readInt();
   if (cmdMessenger.available()) wait = cmdMessenger.readInt();
   
   //uint32_t color = strip.Color(rgb[0],rgb[1],rgb[2]);
-  if (ledNo < 1) {
+  if (x < 1) {
     if (wait < 1) { 
       stripper.setColor(rgb);
     } else {
       stripper.colorWipe(rgb, wait);
     }
   } else {
-    stripper.setPixel(ledNo, rgb);
+    stripper.setPixel(x, y, rgb, true);
   }
 }
 
@@ -257,13 +265,34 @@ void attach_callbacks(messengerCallbackFunction* callbacks)
   }
 }
 
+void connectMqtt(){
+  String deviceId = DEVICE_ID;
+  String maker = MAKER;
+  String model = MODEL;
+  String _version = VERSION;
+  
+  MQTT.begin();
+  MQTT.setHost(MQTT_HOST);
+  MQTT.setPort(MQTT_PORT);
+  MQTT.setWillTopic("device/"+deviceId+"/goodbye");
+  MQTT.setWill("0|"+deviceId);
+  MQTT.setQos(1);
+  MQTT.addTopic("*");
+  MQTT.addTopic(maker);
+  MQTT.addTopic(maker+"/"+model);
+  MQTT.addTopic(maker+"/"+model+"/"+_version);
+  MQTT.addTopic("device/"+deviceId+"/command");
+  MQTT.start();
+}
+
 void setup() 
 {
   pinMode(SW1PIN, INPUT);
   // Listen on serial connection for messages from the pc
   // Serial.begin(57600);  // Arduino Duemilanove, FTDI Serial
-  Serial.begin(115200); // Arduino Uno, Mega, with AT8u2 USB
 
+  Serial.begin(57600); // Arduino Uno, Mega, with AT8u2 USB
+  //while (!Serial);
   // cmdMessenger.discard_LF_CR(); // Useful if your terminal appends CR/LF, and you wish to remove them
   //.print_LF_CR();   // Make output more readable whilst debugging in Arduino Serial Monitor
   
@@ -283,6 +312,9 @@ void setup()
   pinMode(13, OUTPUT);
   
   randomSeed(analogRead(0));
+  
+  Bridge.begin();
+  
 }
 
 
@@ -304,6 +336,11 @@ void readLightSensor()
 
 void loop() 
 {
+
+  if (!MQTT.running()){
+    connectMqtt();
+  }
+  
   int sw1 = readButton();
   if (sw1 >= 0) {
     char msgArg[5];
@@ -312,6 +349,7 @@ void loop()
   }
   // Process incoming serial data, if any
   cmdMessenger.feedinSerialData();
+
   
   stripper.tick();
   delay(1);
